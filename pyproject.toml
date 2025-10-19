@@ -1,0 +1,24 @@
+[project]
+name = "code-assistant"
+version = "0.1.0"
+description = "A simple RAG-based code assistant for the Ultralytics repository."
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "gradio",
+    "pymongo",
+    "sentence-transformers",
+    "python-dotenv",
+    "requests",
+    "tqdm",
+    "einops",
+    "transformers==4.53.1",
+    "torch>=2.8,<2.9",
+    "optimum"
+]
+
+[tool.uv]
+# Optional configurations for 'uv'
+
+[tool.setuptools]
+py-modules = ["app", "index_code"]
