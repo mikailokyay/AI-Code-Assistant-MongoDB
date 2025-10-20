@@ -1,103 +1,50 @@
-import ast
+"""Script to index code files from specified directories into a MongoDB database with embeddings."""
 import os
-import sys
-from pathlib import Path
+
 from dotenv import load_dotenv
-from pymongo import MongoClient
-from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
-
-SOURCE_DIRECTORIES = ["yolo-code-repo/ultralytics/ultralytics/models",
-                      "yolo-code-repo/ultralytics/ultralytics/engine",
-                      "yolo-code-repo/ultralytics/ultralytics/data"]
-
-DB_NAME = "yolo_code_db"
-COLLECTION_NAME = "code_chunks"
-EMBEDDING_MODEL = "jinaai/jina-embeddings-v2-base-code"
-
-
-class CodeChunker(ast.NodeVisitor):
-    def __init__(self, file_path, file_content):
-        self.file_path = file_path
-        self.file_content_lines = file_content.splitlines()
-        self.chunks = []
-
-    def get_node_code(self, node):
-        start_line = node.lineno - 1
-        end_line = getattr(node, 'end_lineno', start_line)
-        return "\n".join(self.file_content_lines[start_line:end_line])
-
-    def visit_FunctionDef(self, node):
-        self.chunks.append({
-            "file_path": str(self.file_path),
-            "type": "function",
-            "name": node.name,
-            "lineno": node.lineno,
-            "code_snippet": self.get_node_code(node)
-        })
-        self.generic_visit(node)
-
-    def visit_ClassDef(self, node):
-        self.chunks.append({
-            "file_path": str(self.file_path),
-            "type": "class",
-            "name": node.name,
-            "lineno": node.lineno,
-            "code_snippet": self.get_node_code(node)
-        })
-        self.generic_visit(node)
-
-    @staticmethod
-    def chunk_file(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            tree = ast.parse(content)
-            chunker = CodeChunker(file_path, content)
-            chunker.visit(tree)
-            return chunker.chunks
-        except Exception as e:
-            return []
-
-
-def get_mongo_client():
-    load_dotenv()
-    mongo_uri = os.getenv("MONGO_URI")
-    if not mongo_uri:
-        sys.exit(1)
-    
-    client = MongoClient(mongo_uri)
-    try:
-        client.admin.command('ping')
-    except Exception as e:
-        print(f"MongoDB connection error: {str(e)}")
-        sys.exit(1)
-    return client
-
-
-def get_embedding_model():
-    model = SentenceTransformer(EMBEDDING_MODEL, device=None, trust_remote_code=True)
-    model.max_seq_length = 8192
-    return model
+from code_assistant.utils.db_opt import get_mongo_client
+from code_assistant.utils.model_opt import get_embedding_model
+from code_assistant.utils.utils import get_files
+from code_assistant.data.chunk_data import CodeChunker
 
 def main():
-    client = get_mongo_client()
+    load_dotenv()
+    SOURCE_DIRECTORIES = os.getenv("SOURCE_DIRECTORIES").split(",")
+    DB_NAME = os.getenv("DB_NAME", "yolo_code_db")
+    COLLECTION_NAME = os.getenv("COLLECTION_NAME", "code_chunks")
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code")
+    MONGO_URI = os.getenv("MONGO_URI")
+
+    client = get_mongo_client(MONGO_URI)
     db = client[DB_NAME]
     collection = db[COLLECTION_NAME]
 
-    collection.delete_many({})
+    update_index = os.getenv("UPDATE_INDEX", "False").lower() == "true"
+    if update_index:
+        print("\nUPDATE_INDEX environment variable is set. Forcing full re-indexing and clearing the collection.")
+        collection.delete_many({})
+        document_count = 0 
+    else:
+        document_count = collection.count_documents({})
 
-    model = get_embedding_model()
+    if document_count > 0:
+        print(f"\nDatabase already indexed. Found {document_count} documents in '{COLLECTION_NAME}'.")
+        print("If you need to re-index, please set UPDATE_INDEX=True environment variable or clear the collection manually.")
+        client.close()
+        return
 
-    all_files = []
-    for dir_path in SOURCE_DIRECTORIES:
-        all_files.extend(list(Path(dir_path).rglob("*.py")))
+    print("Database is empty or cleared. Starting fresh indexing process...")
     
-    print(f"Found {len(all_files)} Python files to process.")
+    model = get_embedding_model(EMBEDDING_MODEL)
+
+    all_files = get_files(SOURCE_DIRECTORIES)
 
     all_chunks = []
     for file_path in tqdm(all_files, desc="Chunking files"):
         all_chunks.extend(CodeChunker.chunk_file(file_path))
+    
+    print(f"Total chunks created: {len(all_chunks)}")
 
     chunks_to_insert = []
 

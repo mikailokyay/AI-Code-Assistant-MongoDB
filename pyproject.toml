@@ -14,7 +14,8 @@ dependencies = [
     "einops",
     "transformers==4.53.1",
     "torch>=2.8,<2.9",
-    "optimum"
+    "optimum",
+    "accelerate"
 ]
 
 [tool.uv]
