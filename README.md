@@ -1,4 +1,4 @@
-# Ultralytics Code Assistant.
+# Code Assistant with Mongo DB based RAG pipeline.
 
 This project is a simple **RAG (Retrieval-Augmented Generation)** code assistant built to answer questions about the **Ultralytics YOLO Python source code**, specifically the `models`, `engine`, and `data` directories.
 
